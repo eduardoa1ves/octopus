@@ -1,0 +1,210 @@
+# Octopus  - Easy Database Sharding for ActiveRecord
+
+[![Build Status](https://travis-ci.org/tchandy/octopus.png)](https://travis-ci.org/tchandy/octopus) [![Code Climate](https://codeclimate.com/badge.png)](https://codeclimate.com/github/tchandy/octopus)
+
+Octopus is a better way to do Database Sharding in ActiveRecord. Sharding allows multiple databases in the same rails application. While there are several projects that implement Sharding (e.g. DbCharmer, DataFabric, MultiDb), each project has its own limitations. The main goal of octopus project is to provide a better way of doing Database Sharding.
+
+## Feature list:
+The api is designed to be simple as possible. Octopus focuses on the end user, giving the power of multiple databases but with reliable code and flexibility. Octopus is focused on Rails 3, but is compatible with Rails 2.x.
+
+Octopus supports:
+
+- Sharding (with multiple shards, and grouped shards).
+- Replication (Master/slave support, with multiple slaves).
+- Moving data between shards with migrations.
+- Tools to manage database configurations. (soon)
+
+### Replication
+When using replication, all writes queries will be sent to master, and read queries to slaves. More info could be found at: <a href="http://wiki.github.com/tchandy/octopus/replication"> Wiki</a>
+
+### Sharding
+ When using sharding, you need to specify which shard to send the query. Octopus supports selecting the shard inside a controller, or manually in each object. More could be found at <a href="http://wiki.github.com/tchandy/octopus/sharding"> Wiki</a>
+
+### Replication + Sharding
+ Replication + Sharding isn't supported yet. This is on our TODO list and will be done ASAP. If you need, feel free to fork and implement it.
+
+## Install
+
+### Rails 2.x
+
+Install  the octopus gem:
+
+    sudo gem install ar-octopus
+
+Add this line to enviroment.rb:
+
+    config.gem 'ar-octopus', :lib => "octopus"
+
+### Rails 3.x
+
+Add this line to Gemfile:
+
+    gem 'ar-octopus', :require => 'octopus'
+
+**Note**: The `ar-octopus` gem build is out of date. Until a new build is created, we recommend using the gem from this repo by placing `gem "ar-octopus", github: "tchandy/octopus", require: "octopus"` in your Gemfile instead of the above line. Alternatively you can [create your own fork](https://github.com/tchandy/octopus/fork_select) (for added stability against changes to master) and reference that fork from your Gemfile: `gem "ar-octopus", github: "<fork owner>/octopus", require: "octopus"`.
+
+Run a bundle install:
+
+    bundle install
+
+## Upgrading
+
+### From < 0.5.0
+
+Octopus < 0.5.0 stored schema version information in the master database defined in the database.yml file, and assumed
+that each shard's schema matched the others and the master database. Beginning with Octopus 0.5.0, the schema version
+information for each shard is stored within that shard's database.
+
+If you are upgrading from < 0.5.0 run the `copy_schema_versions` rake task to copy the schema version information in the
+master database to each of the shards:
+
+    rake octopus:copy_schema_versions
+
+Once the task completes migrations will operate normally and schema information will be stored in each shard database
+going forward.
+
+In order to run this task in Rails 2.3, you'll need to tell Rails to load Octopus' rake tasks by adding this to your `Rakefile`:
+
+    Dir["#{Gem.searcher.find('ar-octopus').full_gem_path}/lib/tasks/**/*.rake"].each { |ext| load ext }
+
+## How to use Octopus?
+
+First, you need to create a config file, shards.yml, inside your config/ directory. to see the syntax and how this file should look, please checkout <a href="http://wiki.github.com/tchandy/octopus/config-file">this page on wiki</a>.
+
+### Syntax
+
+Octopus adds a method to each AR Class and object: the using method is used to select the shard like this:
+
+    User.where(:name => "Thiago").limit(3).using(:slave_one)
+
+Octopus also supports queries within a block. When you pass a block to the using method, all queries inside the block will be sent to the specified shard.
+
+    Octopus.using(:slave_two) do
+      User.create(:name => "Mike")
+    end
+
+Each model instance knows which shard it came from so this will work automatically:
+
+    # This will find the user in the shard1
+    @user = User.using(:shard1).find_by_name("Joao")
+
+    # This will find the user in the master database
+    @user2 = User.find_by_name("Jose")
+
+    #Sets the name
+    @user.name = "Mike"
+
+    # Save the user in the correct shard, shard1.
+    @user.save
+
+### Migrations
+
+In migrations, you also have access to the using method. The syntax is basically the same. This migration will run in the brazil and canada shards.
+
+    class CreateUsersOnBothShards < ActiveRecord::Migration
+      using(:brazil, :canada)
+
+      def self.up
+        User.create!(:name => "Both")
+      end
+
+      def self.down
+        User.delete_all
+      end
+    end
+
+You also could send a migration to a group of shards.  This migration will be sent to all shards that belongs to history_shards group, specified in shards.yml:
+
+    class CreateUsersOnMultiplesGroups < ActiveRecord::Migration
+      using_group(:history_shards)
+
+      def self.up
+        User.create!(:name => "MultipleGroup")
+      end
+
+      def self.down
+        User.delete_all
+      end
+    end
+
+### Rails Controllers
+
+If you want to send a specified action, or all actions from a controller, to a specific shard,  use this syntax:
+
+    class ApplicationController < ActionController::Base
+      around_filter :select_shard
+
+      def select_shard(&block)
+        Octopus.using(:brazil, &block)
+      end
+    end
+
+ To see the complete list of features and syntax, please check out our <a href="http://wiki.github.com/tchandy/octopus/"> Wiki</a>
+Want to see sample rails applications using octopus features? please check it out: <a href="http://github.com/tchandy/octopus_sharding_example">Sharding Example</a> and <a href="http://github.com/tchandy/octopus_replication_example">Replication Example</a>. Also, we have an example that shows how to use Octopus without Rails: <a href="http://github.com/tchandy/octopus_sinatra"> Octopus + Sinatra Example</a>.
+
+
+## Important!
+Occasionally, an application might lose a connection to a database; when this happens, ActiveRecord will raise an exception. Add the following line to your application configuration if you are experiencing this issue:
+
+    verify_connection: true
+
+This will tell Octopus to verify the connection before sending the query.
+
+## Mixing Octopus with the Rails multiple database model
+If you want to set a custom connection to a specific model, use the syntax `octopus_establish_connection` syntax:
+
+    #This class sets its own connection
+    class CustomConnection < ActiveRecord::Base
+      octopus_establish_connection(:adapter => "mysql", :database => "octopus_shard2")
+    end
+
+## Set table names
+If you want to use specific table names, use the correct syntax for your version of Rails.
+
+### Rails <= 3.1
+
+    class Bacon < ActiveRecord::Base
+      set_table_name("yummy")
+    end
+
+### Rails >= 3.2
+
+    class Bacon < ActiveRecord::Base
+      self.table_name = "yummy"
+    end
+
+Unfortunately the `self.table_name=` syntax isn't supported on versions of Rails <= 3.1.
+
+## Contributing with Octopus
+Contributors are welcome! To run the test suite, you need mysql, postgresql and sqlite3 installed. This is what you need to setup your Octopus development environment:
+
+    git clone http://github.com/tchandy/octopus.git
+    cd octopus
+    bundle install
+    bundle exec rake db:prepare
+    bundle exec rake appraisal:install
+    bundle exec rake spec
+
+This command will run the spec suite for all rails versions supported (Rails 2.3, Rails 3.0 and Rails 3.1).
+To run our integrations tests inside sample_app, you need to following commands:
+
+    cd sample_app
+    bundle install
+    cucumber
+
+If you are having issues running the octopus spec suite, verify your database users and passwords match those inside the config files and your permissions are correct.
+
+## Contributors:
+- <a href="https://github.com/tchandy/octopus/contributors">All Contributors</a>
+
+## Mailing List:
+- <a href="http://groups.google.com/group/octopus-activerecord/">Octopus Mailing List</a>
+
+## Thanks
+
+This project is sponsored by the <a href="http://www.rubysoc.org">Ruby Summer of Code</a>,
+and my mentors <a href="http://github.com/mperham">Mike Perham</a> and <a href="http://github.com/amitagarwal">Amit Agarwal</a>.
+
+## Copyright
+
+Copyright (c) Thiago Pradi, released under the MIT license.

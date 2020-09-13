@@ -1,0 +1,11 @@
+*.gem
+*.sqlite3
+.bundle
+.rvmrc
+Gemfile.lock
+gemfiles/*
+pkg/*
+*.rbc
+tmp/*
+.*.sw[a-z]
+database.log
